@@ -61,6 +61,15 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
+				},
+				terminal: {
+					bg: 'hsl(var(--terminal-bg))',
+					fg: 'hsl(var(--terminal-fg))',
+					green: 'hsl(var(--terminal-green))',
+					blue: 'hsl(var(--terminal-blue))',
+					gray: 'hsl(var(--terminal-gray))',
+					selection: 'hsl(var(--terminal-selection))',
+					cursor: 'hsl(var(--terminal-cursor))'
 				}
 			},
 			borderRadius: {
