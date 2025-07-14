@@ -33,7 +33,7 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
     if (!selectedEntryId) return 0;
     
     const selectedEntry = entries.find(e => e.id === selectedEntryId);
-    return selectedEntry ? selectedEntry.indent + 1 : 0;
+    return selectedEntry ? selectedEntry.indent : 0; // Same level, not +1
   }, [selectedEntryId, entries]);
 
   // Generate unique ID
@@ -161,9 +161,9 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
     const selectedEntry = entries.find(e => e.id === selectedEntryId);
     if (!selectedEntry) return "Appending to bottom";
     
-    const indent = selectedEntry.indent + 1;
+    const indent = selectedEntry.indent;
     const indentStr = "  ".repeat(indent);
-    return `${indentStr}└─ Child of selected entry`;
+    return `${indentStr}├─ Same level as selected entry`;
   };
 
   return (
