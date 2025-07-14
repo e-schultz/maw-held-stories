@@ -6,8 +6,10 @@ interface Entry {
   id: string;
   content: string;
   timestamp: Date;
+  updatedAt?: Date;
   indent: number;
   parentId?: string;
+  type: string; // log, ctx, abc, xyz, etc.
 }
 
 interface HybridNotesProps {}
@@ -18,6 +20,7 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
   const [inputValue, setInputValue] = useState('');
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [currentIndent, setCurrentIndent] = useState(0);
+  const [showDetails, setShowDetails] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const entriesRef = useRef<HTMLDivElement>(null);
 
@@ -39,16 +42,37 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
   // Generate unique ID
   const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
+  // Parse entry type and content
+  const parseEntryInput = (input: string) => {
+    const trimmed = input.trim();
+    const typeMatch = trimmed.match(/^(\w+)::\s*(.*)/s);
+    
+    if (typeMatch) {
+      return {
+        type: typeMatch[1],
+        content: typeMatch[2] || trimmed
+      };
+    }
+    
+    return {
+      type: 'log',
+      content: trimmed
+    };
+  };
+
   // Add new entry
   const addEntry = useCallback(() => {
     if (!inputValue.trim()) return;
 
+    const { type, content } = parseEntryInput(inputValue);
+
     const newEntry: Entry = {
       id: generateId(),
-      content: inputValue.trim(),
+      content,
       timestamp: new Date(),
       indent: getInsertIndent(),
-      parentId: selectedEntryId || undefined
+      parentId: selectedEntryId || undefined,
+      type
     };
 
     setEntries(prev => {
@@ -136,9 +160,13 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
   }, [mode, addEntry, entries, selectedEntryId]);
 
   // Format entry content for display
-  const formatEntryContent = (content: string) => {
-    const lines = content.split('\n');
-    if (lines.length === 1) return content;
+  const formatEntryContent = (entry: Entry) => {
+    const displayContent = showDetails && entry.type !== 'log' 
+      ? `${entry.type}:: ${entry.content}`
+      : entry.content;
+      
+    const lines = displayContent.split('\n');
+    if (lines.length === 1) return displayContent;
     
     return (
       <div>
@@ -196,6 +224,14 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
               <FileText className="w-4 h-4 mr-2" />
               Edit
             </Button>
+            <Button
+              variant={showDetails ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowDetails(!showDetails)}
+              className="text-xs"
+            >
+              Details
+            </Button>
           </div>
         </div>
       </div>
@@ -242,10 +278,20 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                         <span className="text-terminal-green text-xs mt-1">➤</span>
                         <div className="flex-1">
                           <div className="text-terminal-fg">
-                            {formatEntryContent(entry.content)}
+                            {formatEntryContent(entry)}
                           </div>
-                          <div className="text-terminal-gray text-xs mt-1">
-                            {entry.timestamp.toLocaleTimeString()}
+                          <div className="flex items-center gap-2 text-terminal-gray text-xs mt-1">
+                            <span>{entry.timestamp.toLocaleTimeString()}</span>
+                            {entry.type !== 'log' && !showDetails && (
+                              <span className="px-1.5 py-0.5 bg-terminal-gray/20 rounded text-xs">
+                                {entry.type}
+                              </span>
+                            )}
+                            {entry.updatedAt && (
+                              <span className="text-yellow-400">
+                                ↻ {entry.updatedAt.toLocaleTimeString()}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -258,7 +304,7 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
             {/* Input Area */}
             <div className="border-t border-terminal-gray/20 p-4">
               <div className="text-terminal-gray text-xs mb-2">
-                {getInsertionIndicator()} • Alt+↑/↓ to select entry
+                {getInsertionIndicator()} • Alt+↑/↓ to select • type:: content for custom types
               </div>
               
               <div className="flex items-end gap-2">
@@ -269,7 +315,7 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="What's on your mind?"
+                    placeholder="log:: What's on your mind? or ctx:: some context"
                     className="w-full bg-transparent border-none outline-none resize-none text-terminal-fg placeholder-terminal-gray"
                     rows={1}
                     style={{ 
@@ -316,13 +362,23 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                         className="flex items-start gap-4"
                         style={{ marginLeft: `${entry.indent * 20}px` }}
                       >
-                        <span className="text-muted-foreground text-xs whitespace-nowrap">
-                          {entry.timestamp.toLocaleTimeString()}
-                        </span>
+                        <div className="flex items-center gap-2 text-muted-foreground text-xs whitespace-nowrap">
+                          <span>{entry.timestamp.toLocaleTimeString()}</span>
+                          {entry.type !== 'log' && (
+                            <span className="px-1.5 py-0.5 bg-muted rounded text-xs">
+                              {entry.type}
+                            </span>
+                          )}
+                        </div>
                         <div className="flex-1">
                           <div className="text-foreground whitespace-pre-wrap">
-                            {entry.content}
+                            {showDetails && entry.type !== 'log' ? `${entry.type}:: ${entry.content}` : entry.content}
                           </div>
+                          {entry.updatedAt && (
+                            <div className="text-yellow-600 text-xs mt-1">
+                              Updated: {entry.updatedAt.toLocaleTimeString()}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
