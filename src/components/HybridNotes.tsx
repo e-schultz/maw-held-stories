@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { FileText, MessageSquare, Upload, Database } from 'lucide-react';
+import { FileText, MessageSquare, Upload, Database, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Entry {
   id: string;
@@ -10,6 +10,7 @@ interface Entry {
   indent: number;
   parentId?: string;
   type: string; // log, ctx, abc, xyz, etc.
+  isCollapsed?: boolean;
 }
 
 interface HybridNotesProps {}
@@ -96,6 +97,41 @@ const DEMO_FLOAT_AST = {
       }
     ]
   }
+};
+
+// Type color mapping for visual clarity
+const getTypeColor = (type: string): string => {
+  const colorMap: Record<string, string> = {
+    'synthesis': 'text-terminal-green border-l-terminal-green',
+    'collapse': 'text-red-400 border-l-red-400',
+    'epistemological': 'text-red-400 border-l-red-400',
+    'resistance': 'text-yellow-400 border-l-yellow-400',
+    'methodological': 'text-yellow-400 border-l-yellow-400',
+    'heresy': 'text-purple-400 border-l-purple-400',
+    'business': 'text-purple-400 border-l-purple-400',
+    'debug': 'text-blue-400 border-l-blue-400',
+    'debugging': 'text-blue-400 border-l-blue-400',
+    'praxis': 'text-terminal-green border-l-terminal-green',
+    'consciousness': 'text-terminal-green border-l-terminal-green',
+    'ritual': 'text-cyan-400 border-l-cyan-400',
+    'knowledge': 'text-cyan-400 border-l-cyan-400',
+    'bridge': 'text-orange-400 border-l-orange-400',
+    'connection': 'text-orange-400 border-l-orange-400',
+    'meta': 'text-terminal-gray border-l-terminal-gray',
+    'metadata': 'text-terminal-gray border-l-terminal-gray',
+    'structure': 'text-terminal-gray border-l-terminal-gray',
+    'log': 'text-terminal-fg border-l-terminal-gray',
+    'ctx': 'text-terminal-blue border-l-terminal-blue',
+  };
+  
+  // Check for partial matches
+  for (const [key, color] of Object.entries(colorMap)) {
+    if (type.toLowerCase().includes(key)) {
+      return color;
+    }
+  }
+  
+  return 'text-terminal-fg border-l-terminal-gray'; // default
 };
 
 export const HybridNotes: React.FC<HybridNotesProps> = () => {
@@ -241,6 +277,38 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
       content: trimmed
     };
   };
+
+  // Toggle collapse state of an entry
+  const toggleCollapse = useCallback((entryId: string) => {
+    setEntries(prev => prev.map(entry => {
+      if (entry.id === entryId) {
+        return { ...entry, isCollapsed: !entry.isCollapsed };
+      }
+      return entry;
+    }));
+  }, []);
+
+  // Check if an entry should be hidden due to collapsed parent
+  const isEntryVisible = useCallback((entry: Entry, index: number): boolean => {
+    // Find all ancestors and check if any are collapsed
+    let currentIndent = entry.indent;
+    for (let i = index - 1; i >= 0; i--) {
+      const potentialParent = entries[i];
+      if (potentialParent.indent < currentIndent) {
+        if (potentialParent.isCollapsed) {
+          return false;
+        }
+        currentIndent = potentialParent.indent;
+      }
+    }
+    return true;
+  }, [entries]);
+
+  // Check if entry has children
+  const hasChildren = useCallback((entry: Entry, index: number): boolean => {
+    if (index === entries.length - 1) return false;
+    return entries[index + 1]?.indent > entry.indent;
+  }, [entries]);
 
   // Add new entry
   const addEntry = useCallback(() => {
@@ -453,41 +521,81 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                   <span className="text-terminal-green">➤</span> Start logging your thoughts...
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {entries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className={`cursor-pointer transition-colors rounded p-2 ${
-                        selectedEntryId === entry.id
-                          ? 'bg-terminal-selection/20 border-l-2 border-terminal-selection'
-                          : 'hover:bg-terminal-gray/10'
-                      }`}
-                      style={{ marginLeft: `${entry.indent * 20}px` }}
-                      onClick={() => setSelectedEntryId(entry.id)}
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className="text-terminal-green text-xs mt-1">➤</span>
-                        <div className="flex-1">
-                          <div className="text-terminal-fg">
-                            {formatEntryContent(entry)}
-                          </div>
-                          <div className="flex items-center gap-2 text-terminal-gray text-xs mt-1">
-                            <span>{entry.timestamp.toLocaleTimeString()}</span>
-                            {entry.type !== 'log' && !showDetails && (
-                              <span className="px-1.5 py-0.5 bg-terminal-gray/20 rounded text-xs">
-                                {entry.type}
-                              </span>
-                            )}
-                            {entry.updatedAt && (
-                              <span className="text-yellow-400">
-                                ↻ {entry.updatedAt.toLocaleTimeString()}
-                              </span>
-                            )}
+                <div className="space-y-1">
+                  {entries.map((entry, index) => {
+                    if (!isEntryVisible(entry, index)) return null;
+                    
+                    const typeColors = getTypeColor(entry.type);
+                    const entryHasChildren = hasChildren(entry, index);
+                    
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`cursor-pointer transition-colors rounded p-2 ${
+                          selectedEntryId === entry.id
+                            ? 'bg-terminal-selection/20 border-l-2 border-terminal-selection'
+                            : `hover:bg-terminal-gray/10 border-l-2 ${typeColors.split(' ')[1]}`
+                        }`}
+                        style={{ marginLeft: `${entry.indent * 20}px` }}
+                        onClick={() => setSelectedEntryId(entry.id)}
+                      >
+                        <div className="flex items-start gap-2">
+                          {/* Collapse/Expand button */}
+                          {entryHasChildren ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleCollapse(entry.id);
+                              }}
+                              className="text-terminal-gray hover:text-terminal-fg mt-1 transition-colors"
+                            >
+                              {entry.isCollapsed ? (
+                                <ChevronRight className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="w-3 h-3 mt-1"></span>
+                          )}
+                          
+                          <span className={`text-xs mt-1 ${typeColors.split(' ')[0]}`}>➤</span>
+                          <div className="flex-1">
+                            <div className={`${typeColors.split(' ')[0]}`}>
+                              {formatEntryContent(entry)}
+                            </div>
+                            <div className="flex items-center gap-2 text-terminal-gray text-xs mt-1">
+                              <span>{entry.timestamp.toLocaleTimeString()}</span>
+                              {entry.type !== 'log' && !showDetails && (
+                                <span className={`px-1.5 py-0.5 rounded text-xs border ${
+                                  typeColors.includes('terminal-green') ? 'bg-terminal-green/20 border-terminal-green/30' :
+                                  typeColors.includes('red-400') ? 'bg-red-400/20 border-red-400/30' :
+                                  typeColors.includes('yellow-400') ? 'bg-yellow-400/20 border-yellow-400/30' :
+                                  typeColors.includes('purple-400') ? 'bg-purple-400/20 border-purple-400/30' :
+                                  typeColors.includes('blue-400') ? 'bg-blue-400/20 border-blue-400/30' :
+                                  typeColors.includes('cyan-400') ? 'bg-cyan-400/20 border-cyan-400/30' :
+                                  typeColors.includes('orange-400') ? 'bg-orange-400/20 border-orange-400/30' :
+                                  'bg-terminal-gray/20 border-terminal-gray/30'
+                                }`}>
+                                  {entry.type}
+                                </span>
+                              )}
+                              {entry.updatedAt && (
+                                <span className="text-yellow-400">
+                                  ↻ {entry.updatedAt.toLocaleTimeString()}
+                                </span>
+                              )}
+                              {entryHasChildren && (
+                                <span className="text-terminal-gray text-xs">
+                                  [{entry.isCollapsed ? 'collapsed' : 'expanded'}]
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -547,32 +655,64 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                   <p className="text-muted-foreground">No entries yet. Switch to Chat mode to start logging thoughts.</p>
                 ) : (
                   <div className="space-y-3 font-mono text-sm">
-                    {entries.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-start gap-4"
-                        style={{ marginLeft: `${entry.indent * 20}px` }}
-                      >
-                        <div className="flex items-center gap-2 text-muted-foreground text-xs whitespace-nowrap">
-                          <span>{entry.timestamp.toLocaleTimeString()}</span>
-                          {entry.type !== 'log' && (
-                            <span className="px-1.5 py-0.5 bg-muted rounded text-xs">
-                              {entry.type}
-                            </span>
+                    {entries.map((entry, index) => {
+                      if (!isEntryVisible(entry, index)) return null;
+                      
+                      const typeColors = getTypeColor(entry.type);
+                      const entryHasChildren = hasChildren(entry, index);
+                      
+                      return (
+                        <div
+                          key={entry.id}
+                          className="flex items-start gap-4"
+                          style={{ marginLeft: `${entry.indent * 20}px` }}
+                        >
+                          {/* Collapse/Expand button */}
+                          {entryHasChildren ? (
+                            <button
+                              onClick={() => toggleCollapse(entry.id)}
+                              className="text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              {entry.isCollapsed ? (
+                                <ChevronRight className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="w-3 h-3"></span>
                           )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-foreground whitespace-pre-wrap">
-                            {showDetails && entry.type !== 'log' ? `${entry.type}:: ${entry.content}` : entry.content}
+                          
+                          <div className="flex items-center gap-2 text-muted-foreground text-xs whitespace-nowrap">
+                            <span>{entry.timestamp.toLocaleTimeString()}</span>
+                            {entry.type !== 'log' && (
+                              <span className={`px-1.5 py-0.5 rounded text-xs border ${
+                                typeColors.includes('terminal-green') ? 'bg-primary/20 border-primary/30' :
+                                typeColors.includes('red-400') ? 'bg-red-500/20 border-red-500/30' :
+                                typeColors.includes('yellow-400') ? 'bg-yellow-500/20 border-yellow-500/30' :
+                                typeColors.includes('purple-400') ? 'bg-purple-500/20 border-purple-500/30' :
+                                typeColors.includes('blue-400') ? 'bg-blue-500/20 border-blue-500/30' :
+                                typeColors.includes('cyan-400') ? 'bg-cyan-500/20 border-cyan-500/30' :
+                                typeColors.includes('orange-400') ? 'bg-orange-500/20 border-orange-500/30' :
+                                'bg-muted border-muted'
+                              }`}>
+                                {entry.type}
+                              </span>
+                            )}
                           </div>
-                          {entry.updatedAt && (
-                            <div className="text-yellow-600 text-xs mt-1">
-                              Updated: {entry.updatedAt.toLocaleTimeString()}
+                          <div className="flex-1">
+                            <div className="text-foreground whitespace-pre-wrap">
+                              {showDetails && entry.type !== 'log' ? `${entry.type}:: ${entry.content}` : entry.content}
                             </div>
-                          )}
+                            {entry.updatedAt && (
+                              <div className="text-yellow-600 text-xs mt-1">
+                                Updated: {entry.updatedAt.toLocaleTimeString()}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
