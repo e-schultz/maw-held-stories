@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { FileText, MessageSquare, Upload } from 'lucide-react';
+import { FileText, MessageSquare, Upload, Database } from 'lucide-react';
 
 interface Entry {
   id: string;
@@ -13,6 +13,90 @@ interface Entry {
 }
 
 interface HybridNotesProps {}
+
+// Demo floatAST data
+const DEMO_FLOAT_AST = {
+  "floatAST": {
+    "version": "1.0",
+    "type": "ConsultingEvolutionSynthesis",
+    "metadata": {
+      "bridge_id": "CB-20250721-1700-EXEC",
+      "timestamp": "2025-07-21T17:00:00Z",
+      "ritual_type": "strategic_paradigm_shift",
+      "consciousness_transmission": true
+    },
+    "sections": [
+      {
+        "id": "knowledge_asymmetry_death",
+        "type": "epistemological_collapse",
+        "content": {
+          "observation": "The priesthood of Angular and React has lost its power",
+          "timeline": "6 years of client confidence building",
+          "implication": "Traditional consulting influence structures evaporating",
+          "nick_quote": "there's no path to influence anymore because we can't leverage that unique sort of being the priesthood"
+        },
+        "metadata": {
+          "timestamp": "17:00",
+          "speaker": "nick",
+          "revolutionary_potential": "high"
+        }
+      },
+      {
+        "id": "antic_driven_subversion",
+        "type": "methodological_resistance",
+        "content": {
+          "framework": "antic-driven development",
+          "etymology": "antics + schematics = playful infrastructure",
+          "structure": {
+            "unit": "job story",
+            "increment": "shippable antic",
+            "rhythm": "refactor every 4 antics",
+            "total_antics": 16
+          },
+          "subversion": "Replaces user stories with user antics - what people actually do vs what they claim"
+        },
+        "metadata": {
+          "timestamp": "17:26",
+          "revolutionary_act": "naming_as_resistance",
+          "undefined_as_strength": true
+        }
+      },
+      {
+        "id": "personal_saas_inversion",
+        "type": "business_model_heresy",
+        "content": {
+          "concept": "Software as a Service for One",
+          "economics": {
+            "rate": "$200/hr for agentic engineers",
+            "structure": "2 devs × 4 weeks + 12 month support",
+            "total": "$128k",
+            "evolution": "L1 → L2 → L3 support as agents improve"
+          },
+          "heresy": "Individual infrastructure over mass market",
+          "validation": "Friday CRM demo - 80% functionality in <1 week"
+        },
+        "metadata": {
+          "disrupts": "traditional_saas_economics",
+          "enables": "bespoke_at_scale"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "knowledge_asymmetry_death",
+        "to": "personal_saas_inversion",
+        "type": "enables",
+        "strength": "paradigm_shift"
+      },
+      {
+        "from": "antic_driven_subversion", 
+        "to": "personal_saas_inversion",
+        "type": "supports",
+        "strength": "methodological"
+      }
+    ]
+  }
+};
 
 export const HybridNotes: React.FC<HybridNotesProps> = () => {
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -41,6 +125,104 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
 
   // Generate unique ID
   const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+  // Parse floatAST into HybridNotes entries
+  const parseFloatAST = (floatAST: any): Entry[] => {
+    const entries: Entry[] = [];
+    
+    // Add main header
+    entries.push({
+      id: generateId(),
+      content: `${floatAST.floatAST.type} - ${floatAST.floatAST.metadata.bridge_id}`,
+      timestamp: new Date(floatAST.floatAST.metadata.timestamp),
+      indent: 0,
+      type: 'synthesis'
+    });
+
+    // Process sections
+    floatAST.floatAST.sections.forEach((section: any) => {
+      // Section header
+      entries.push({
+        id: generateId(),
+        content: section.id.replace(/_/g, ' '),
+        timestamp: new Date(),
+        indent: 1,
+        type: section.type.split('_')[0] // collapse, resistance, heresy, etc.
+      });
+
+      // Content entries
+      Object.entries(section.content).forEach(([key, value]: [string, any]) => {
+        if (typeof value === 'object') {
+          entries.push({
+            id: generateId(),
+            content: `${key}:: ${JSON.stringify(value, null, 2)}`,
+            timestamp: new Date(),
+            indent: 2,
+            type: 'structure'
+          });
+        } else {
+          entries.push({
+            id: generateId(),
+            content: `${key}:: ${value}`,
+            timestamp: new Date(),
+            indent: 2,
+            type: key
+          });
+        }
+      });
+
+      // Metadata
+      if (section.metadata) {
+        entries.push({
+          id: generateId(),
+          content: 'metadata',
+          timestamp: new Date(),
+          indent: 2,
+          type: 'meta'
+        });
+
+        Object.entries(section.metadata).forEach(([key, value]: [string, any]) => {
+          entries.push({
+            id: generateId(),
+            content: `${key}:: ${value}`,
+            timestamp: new Date(),
+            indent: 3,
+            type: 'metadata'
+          });
+        });
+      }
+    });
+
+    // Connections
+    if (floatAST.floatAST.connections) {
+      entries.push({
+        id: generateId(),
+        content: 'connections',
+        timestamp: new Date(),
+        indent: 1,
+        type: 'bridge'
+      });
+
+      floatAST.floatAST.connections.forEach((conn: any) => {
+        entries.push({
+          id: generateId(),
+          content: `${conn.from} → ${conn.to} [${conn.type}]`,
+          timestamp: new Date(),
+          indent: 2,
+          type: 'connection'
+        });
+      });
+    }
+
+    return entries;
+  };
+
+  // Load demo content
+  const loadDemoContent = useCallback(() => {
+    const demoEntries = parseFloatAST(DEMO_FLOAT_AST);
+    setEntries(demoEntries);
+    setSelectedEntryId(null);
+  }, []);
 
   // Parse entry type and content
   const parseEntryInput = (input: string) => {
@@ -231,6 +413,15 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
               className="text-xs"
             >
               Details
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadDemoContent}
+              className="text-xs"
+            >
+              <Database className="w-4 h-4 mr-1" />
+              Demo
             </Button>
           </div>
         </div>
