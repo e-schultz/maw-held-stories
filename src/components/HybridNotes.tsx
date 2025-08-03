@@ -669,7 +669,7 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
     setTypeFilter, setSearchQuery, typeFilter, exportEntries, expandCollapseAll, inputRef,
     mode, setShowDetails, showDetails, entries.length, navigateToEntry, selectedEntryId,
     expandCollapseSelected, deleteSelectedEntry, duplicateSelectedEntry, copySelectedEntryContent,
-    moveSelectedEntry
+    moveSelectedEntry, setEditingEntryId
   ]);
 
   // Set up global keyboard event listener
