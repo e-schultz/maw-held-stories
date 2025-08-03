@@ -587,15 +587,14 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
       return;
     }
 
-    // Toggle details
-    if (e.key === 'd' && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      setShowDetails(!showDetails);
-      return;
-    }
-
     // Navigation shortcuts (work when not typing)
     if (entries.length > 0 && !isTyping) {
+      // Toggle details (only when not typing)
+      if (e.key === 'd' && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setShowDetails(!showDetails);
+        return;
+      }
       // Arrow navigation
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
