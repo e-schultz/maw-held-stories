@@ -493,9 +493,25 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
     toggleCollapse(selectedEntryId);
   }, [selectedEntryId, toggleCollapse]);
 
-  // Handle comprehensive key navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Global shortcuts that work in both modes
+  // Export functionality
+  const exportEntries = useCallback(() => {
+    const exportData = JSON.stringify(entries, null, 2);
+    const blob = new Blob([exportData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'hybrid-notes-export.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [entries]);
+
+  // Handle global keyboard shortcuts
+  const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
+    // Don't interfere with input if user is typing (except for global shortcuts)
+    const activeElement = document.activeElement;
+    const isTyping = activeElement?.tagName === 'TEXTAREA' || activeElement?.tagName === 'INPUT';
+    
+    // Global shortcuts that work everywhere
     if (e.key === '?') {
       e.preventDefault();
       setShowKeyboardHelp(!showKeyboardHelp);
@@ -513,20 +529,6 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
     if (e.ctrlKey && e.shiftKey && e.key === 'D') {
       e.preventDefault();
       loadDemoContent();
-      return;
-    }
-
-    // Focus input
-    if (e.key === 'i' && !e.ctrlKey && !e.altKey && mode === 'chat') {
-      e.preventDefault();
-      inputRef.current?.focus();
-      return;
-    }
-
-    // Toggle details
-    if (e.key === 'd' && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      setShowDetails(!showDetails);
       return;
     }
 
@@ -556,37 +558,55 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
       return;
     }
 
-    // Early return if in search mode and typing
-    if (searchMode && e.target !== inputRef.current) {
-      if (e.key === 'Escape') {
-        setSearchMode(false);
-        setSearchQuery('');
-      }
+    // Export functionality
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      exportEntries();
       return;
     }
 
-    // Return early if typing in input (except for specific shortcuts)
-    if (e.target === inputRef.current && !e.ctrlKey && !e.altKey) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        addEntry();
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setSelectedEntryId(null);
-        inputRef.current?.blur();
-        return;
-      }
+    // Expand/collapse all
+    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      expandCollapseAll(true);
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+      e.preventDefault();
+      expandCollapseAll(false);
       return;
     }
 
-    // Navigation shortcuts (work when not typing in input)
-    if (entries.length > 0) {
-      // Arrow navigation (without modifiers when input is empty or not focused)
+    // Don't handle navigation shortcuts if actively typing
+    if (isTyping && activeElement !== inputRef.current) return;
+
+    // Focus input
+    if (e.key === 'i' && !e.ctrlKey && !e.altKey && mode === 'chat') {
+      e.preventDefault();
+      inputRef.current?.focus();
+      return;
+    }
+
+    // Toggle details
+    if (e.key === 'd' && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      setShowDetails(!showDetails);
+      return;
+    }
+
+    // Navigation shortcuts (work when not typing)
+    if (entries.length > 0 && !isTyping) {
+      // Arrow navigation
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         navigateToEntry(e.key === 'ArrowUp' ? 'up' : 'down');
+        return;
+      }
+
+      // Ctrl + Arrow for parent/child navigation
+      if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        navigateToEntry(e.key === 'ArrowUp' ? 'parent' : 'child');
         return;
       }
 
@@ -602,135 +622,83 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
         return;
       }
 
-      // Page navigation
-      if (e.key === 'PageUp') {
-        e.preventDefault();
-        for (let i = 0; i < 5; i++) navigateToEntry('up');
-        return;
-      }
-      if (e.key === 'PageDown') {
-        e.preventDefault();
-        for (let i = 0; i < 5; i++) navigateToEntry('down');
-        return;
-      }
-
-      // Tree navigation
-      if (e.ctrlKey && e.key === 'ArrowUp') {
-        e.preventDefault();
-        navigateToEntry('parent');
-        return;
-      }
-      if (e.ctrlKey && e.key === 'ArrowDown') {
-        e.preventDefault();
-        navigateToEntry('child');
-        return;
-      }
-    }
-
-    // Entry operations (require selection)
-    if (selectedEntryId) {
-      // Expand/collapse
-      if (e.key === ' ' || e.key === 'Enter') {
+      // Space/Enter for expand/collapse
+      if ((e.key === ' ' || e.key === 'Enter') && selectedEntryId) {
         e.preventDefault();
         expandCollapseSelected();
         return;
       }
 
-      // Edit entry
-      if (e.key === 'e' && !e.ctrlKey) {
+      // Edit selected entry
+      if (e.key === 'e' && !e.ctrlKey && !e.altKey && selectedEntryId) {
         e.preventDefault();
         setEditingEntryId(selectedEntryId);
         return;
       }
 
-      // Delete entry
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      // Delete selected entry
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEntryId && !isTyping) {
         e.preventDefault();
         deleteSelectedEntry();
         return;
       }
 
-      // Duplicate entry
-      if (e.ctrlKey && e.key === 'd') {
+      // Duplicate selected entry
+      if (e.ctrlKey && e.key === 'd' && selectedEntryId) {
         e.preventDefault();
         duplicateSelectedEntry();
         return;
       }
 
-      // Copy content
-      if (e.ctrlKey && e.key === 'c') {
+      // Copy selected entry content
+      if (e.ctrlKey && e.key === 'c' && selectedEntryId) {
         e.preventDefault();
         copySelectedEntryContent();
         return;
       }
 
-      // Move entry
-      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowUp') {
+      // Move selected entry
+      if (e.ctrlKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault();
-        moveSelectedEntry('up');
+        moveSelectedEntry(e.key === 'ArrowUp' ? 'up' : 'down');
         return;
       }
-      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowDown') {
-        e.preventDefault();
-        moveSelectedEntry('down');
-        return;
-      }
-
-      // Indent/outdent
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        const maxIndent = 6;
-        setEntries(prev => prev.map(entry => {
-          if (entry.id === selectedEntryId) {
-            const newIndent = e.shiftKey 
-              ? Math.max(0, entry.indent - 1)
-              : Math.min(maxIndent, entry.indent + 1);
-            return { ...entry, indent: newIndent };
-          }
-          return entry;
-        }));
-        return;
-      }
-    }
-
-    // Global tree operations
-    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
-      e.preventDefault();
-      expandCollapseAll(true);
-      return;
-    }
-    if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-      e.preventDefault();
-      expandCollapseAll(false);
-      return;
-    }
-
-    // Focus mode (F key)
-    if (e.key === 'f' && !e.ctrlKey) {
-      e.preventDefault();
-      // TODO: Implement focus mode
-      return;
-    }
-
-    // Export (Ctrl+S)
-    if (e.ctrlKey && e.key === 's') {
-      e.preventDefault();
-      const exportData = JSON.stringify(entries, null, 2);
-      const blob = new Blob([exportData], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'hybrid-notes-export.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      return;
     }
   }, [
-    mode, entries, selectedEntryId, showKeyboardHelp, searchMode, typeFilter, showDetails,
-    addEntry, navigateToEntry, deleteSelectedEntry, duplicateSelectedEntry, 
-    copySelectedEntryContent, moveSelectedEntry, expandCollapseAll, expandCollapseSelected,
-    loadDemoContent
+    showKeyboardHelp, setShowKeyboardHelp, setMode, loadDemoContent, searchMode, setSearchMode,
+    setTypeFilter, setSearchQuery, typeFilter, exportEntries, expandCollapseAll, inputRef,
+    mode, setShowDetails, showDetails, entries.length, navigateToEntry, selectedEntryId,
+    expandCollapseSelected, deleteSelectedEntry, duplicateSelectedEntry, copySelectedEntryContent,
+    moveSelectedEntry
   ]);
+
+  // Set up global keyboard event listener
+  useEffect(() => {
+    document.addEventListener('keydown', handleGlobalKeyDown);
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [handleGlobalKeyDown]);
+
+  // Handle input-specific key events
+  const handleInputKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Allow normal input behavior unless it's a specific shortcut
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addEntry();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setSelectedEntryId(null);
+      inputRef.current?.blur();
+      return;
+    }
+    // Arrow keys for navigation (when input is empty)
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && inputValue === '') {
+      e.preventDefault();
+      navigateToEntry(e.key === 'ArrowUp' ? 'up' : 'down');
+      return;
+    }
+  }, [addEntry, setSelectedEntryId, inputRef, inputValue, navigateToEntry]);
 
   // Format entry content for display
   const formatEntryContent = (entry: Entry) => {
@@ -959,7 +927,7 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                     ref={inputRef}
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
+                    onKeyDown={handleInputKeyDown}
                     placeholder="log:: What's on your mind? or ctx:: some context"
                     className="w-full bg-transparent border-none outline-none resize-none text-terminal-fg placeholder-terminal-gray"
                     rows={1}
