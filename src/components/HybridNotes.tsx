@@ -141,8 +141,15 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [currentIndent, setCurrentIndent] = useState(0);
   const [showDetails, setShowDetails] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [multiSelectIds, setMultiSelectIds] = useState<Set<string>>(new Set());
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const entriesRef = useRef<HTMLDivElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus input on mount and mode switch
   useEffect(() => {
@@ -344,70 +351,386 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
     setSelectedEntryId(newEntry.id); // Auto-select the new entry
   }, [inputValue, selectedEntryId, getInsertIndent]);
 
-  // Handle key navigation
+  // Get filtered entries for display
+  const getFilteredEntries = useCallback(() => {
+    let filtered = entries;
+    
+    if (searchQuery) {
+      filtered = filtered.filter(entry => 
+        entry.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        entry.type.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    if (typeFilter) {
+      filtered = filtered.filter(entry => entry.type === typeFilter);
+    }
+    
+    return filtered;
+  }, [entries, searchQuery, typeFilter]);
+
+  // Navigation utilities
+  const getVisibleEntries = useCallback(() => {
+    return getFilteredEntries().filter((entry, index, array) => 
+      isEntryVisible(entry, entries.indexOf(entry))
+    );
+  }, [getFilteredEntries, isEntryVisible, entries]);
+
+  const navigateToEntry = useCallback((direction: 'up' | 'down' | 'first' | 'last' | 'parent' | 'child') => {
+    const visibleEntries = getVisibleEntries();
+    if (visibleEntries.length === 0) return;
+
+    const currentIndex = selectedEntryId 
+      ? visibleEntries.findIndex(e => e.id === selectedEntryId)
+      : -1;
+
+    let newIndex = currentIndex;
+
+    switch (direction) {
+      case 'up':
+        newIndex = currentIndex <= 0 ? visibleEntries.length - 1 : currentIndex - 1;
+        break;
+      case 'down':
+        newIndex = currentIndex >= visibleEntries.length - 1 ? 0 : currentIndex + 1;
+        break;
+      case 'first':
+        newIndex = 0;
+        break;
+      case 'last':
+        newIndex = visibleEntries.length - 1;
+        break;
+      case 'parent':
+        if (selectedEntryId) {
+          const selectedEntry = entries.find(e => e.id === selectedEntryId);
+          if (selectedEntry && selectedEntry.indent > 0) {
+            const entryIndex = entries.indexOf(selectedEntry);
+            for (let i = entryIndex - 1; i >= 0; i--) {
+              if (entries[i].indent < selectedEntry.indent) {
+                setSelectedEntryId(entries[i].id);
+                return;
+              }
+            }
+          }
+        }
+        return;
+      case 'child':
+        if (selectedEntryId) {
+          const selectedEntry = entries.find(e => e.id === selectedEntryId);
+          if (selectedEntry) {
+            const entryIndex = entries.indexOf(selectedEntry);
+            if (entryIndex < entries.length - 1 && entries[entryIndex + 1].indent > selectedEntry.indent) {
+              setSelectedEntryId(entries[entryIndex + 1].id);
+              return;
+            }
+          }
+        }
+        return;
+    }
+
+    if (newIndex >= 0 && newIndex < visibleEntries.length) {
+      setSelectedEntryId(visibleEntries[newIndex].id);
+    }
+  }, [selectedEntryId, getVisibleEntries, entries]);
+
+  // Entry operations
+  const deleteSelectedEntry = useCallback(() => {
+    if (!selectedEntryId) return;
+    setEntries(prev => prev.filter(e => e.id !== selectedEntryId));
+    setSelectedEntryId(null);
+  }, [selectedEntryId]);
+
+  const duplicateSelectedEntry = useCallback(() => {
+    if (!selectedEntryId) return;
+    const selectedEntry = entries.find(e => e.id === selectedEntryId);
+    if (!selectedEntry) return;
+
+    const newEntry: Entry = {
+      ...selectedEntry,
+      id: generateId(),
+      timestamp: new Date(),
+      content: selectedEntry.content + ' (copy)'
+    };
+
+    const selectedIndex = entries.findIndex(e => e.id === selectedEntryId);
+    setEntries(prev => {
+      const newEntries = [...prev];
+      newEntries.splice(selectedIndex + 1, 0, newEntry);
+      return newEntries;
+    });
+    setSelectedEntryId(newEntry.id);
+  }, [selectedEntryId, entries]);
+
+  const copySelectedEntryContent = useCallback(() => {
+    if (!selectedEntryId) return;
+    const selectedEntry = entries.find(e => e.id === selectedEntryId);
+    if (selectedEntry) {
+      navigator.clipboard.writeText(selectedEntry.content);
+    }
+  }, [selectedEntryId, entries]);
+
+  const moveSelectedEntry = useCallback((direction: 'up' | 'down') => {
+    if (!selectedEntryId) return;
+    const selectedIndex = entries.findIndex(e => e.id === selectedEntryId);
+    if (selectedIndex === -1) return;
+
+    const newIndex = direction === 'up' ? selectedIndex - 1 : selectedIndex + 1;
+    if (newIndex < 0 || newIndex >= entries.length) return;
+
+    setEntries(prev => {
+      const newEntries = [...prev];
+      [newEntries[selectedIndex], newEntries[newIndex]] = [newEntries[newIndex], newEntries[selectedIndex]];
+      return newEntries;
+    });
+  }, [selectedEntryId, entries]);
+
+  // Tree operations
+  const expandCollapseAll = useCallback((expand: boolean) => {
+    setEntries(prev => prev.map(entry => ({ ...entry, isCollapsed: !expand })));
+  }, []);
+
+  const expandCollapseSelected = useCallback(() => {
+    if (!selectedEntryId) return;
+    toggleCollapse(selectedEntryId);
+  }, [selectedEntryId, toggleCollapse]);
+
+  // Handle comprehensive key navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // Ctrl+E: Toggle mode
+    // Global shortcuts that work in both modes
+    if (e.key === '?') {
+      e.preventDefault();
+      setShowKeyboardHelp(!showKeyboardHelp);
+      return;
+    }
+
+    // Mode switching
     if (e.ctrlKey && e.key === 'e') {
       e.preventDefault();
       setMode(prev => prev === 'chat' ? 'edit' : 'chat');
       return;
     }
 
-    // Only handle navigation in chat mode
-    if (mode !== 'chat') return;
-
-    // Enter: Add entry
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Load demo content
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
       e.preventDefault();
-      addEntry();
+      loadDemoContent();
       return;
     }
 
-    // Escape: Clear selection
-    if (e.key === 'Escape') {
+    // Focus input
+    if (e.key === 'i' && !e.ctrlKey && !e.altKey && mode === 'chat') {
       e.preventDefault();
-      setSelectedEntryId(null);
-      setCurrentIndent(0);
+      inputRef.current?.focus();
       return;
     }
 
-    // Alt + Arrow navigation
-    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    // Toggle details
+    if (e.key === 'd' && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
-      if (entries.length === 0) return;
+      setShowDetails(!showDetails);
+      return;
+    }
 
-      const currentIndex = selectedEntryId 
-        ? entries.findIndex(e => e.id === selectedEntryId)
-        : -1;
+    // Search functionality
+    if (e.ctrlKey && e.key === 'f') {
+      e.preventDefault();
+      setSearchMode(!searchMode);
+      return;
+    }
 
-      let newIndex;
-      if (e.key === 'ArrowUp') {
-        newIndex = currentIndex <= 0 ? entries.length - 1 : currentIndex - 1;
-      } else {
-        newIndex = currentIndex >= entries.length - 1 ? 0 : currentIndex + 1;
+    // Clear filters
+    if (e.ctrlKey && e.key === '0') {
+      e.preventDefault();
+      setTypeFilter(null);
+      setSearchQuery('');
+      return;
+    }
+
+    // Type filters (Ctrl + 1-9)
+    if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
+      e.preventDefault();
+      const typeFilters = ['synthesis', 'resistance', 'heresy', 'debug', 'ritual', 'bridge', 'meta', 'log', 'ctx'];
+      const filterIndex = parseInt(e.key) - 1;
+      if (filterIndex < typeFilters.length) {
+        setTypeFilter(typeFilter === typeFilters[filterIndex] ? null : typeFilters[filterIndex]);
+      }
+      return;
+    }
+
+    // Early return if in search mode and typing
+    if (searchMode && e.target !== inputRef.current) {
+      if (e.key === 'Escape') {
+        setSearchMode(false);
+        setSearchQuery('');
+      }
+      return;
+    }
+
+    // Return early if typing in input (except for specific shortcuts)
+    if (e.target === inputRef.current && !e.ctrlKey && !e.altKey) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        addEntry();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedEntryId(null);
+        inputRef.current?.blur();
+        return;
+      }
+      return;
+    }
+
+    // Navigation shortcuts (work when not typing in input)
+    if (entries.length > 0) {
+      // Arrow navigation (without modifiers when input is empty or not focused)
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        navigateToEntry(e.key === 'ArrowUp' ? 'up' : 'down');
+        return;
       }
 
-      setSelectedEntryId(entries[newIndex]?.id || null);
+      // Home/End navigation
+      if (e.key === 'Home') {
+        e.preventDefault();
+        navigateToEntry('first');
+        return;
+      }
+      if (e.key === 'End') {
+        e.preventDefault();
+        navigateToEntry('last');
+        return;
+      }
+
+      // Page navigation
+      if (e.key === 'PageUp') {
+        e.preventDefault();
+        for (let i = 0; i < 5; i++) navigateToEntry('up');
+        return;
+      }
+      if (e.key === 'PageDown') {
+        e.preventDefault();
+        for (let i = 0; i < 5; i++) navigateToEntry('down');
+        return;
+      }
+
+      // Tree navigation
+      if (e.ctrlKey && e.key === 'ArrowUp') {
+        e.preventDefault();
+        navigateToEntry('parent');
+        return;
+      }
+      if (e.ctrlKey && e.key === 'ArrowDown') {
+        e.preventDefault();
+        navigateToEntry('child');
+        return;
+      }
+    }
+
+    // Entry operations (require selection)
+    if (selectedEntryId) {
+      // Expand/collapse
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        expandCollapseSelected();
+        return;
+      }
+
+      // Edit entry
+      if (e.key === 'e' && !e.ctrlKey) {
+        e.preventDefault();
+        setEditingEntryId(selectedEntryId);
+        return;
+      }
+
+      // Delete entry
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        deleteSelectedEntry();
+        return;
+      }
+
+      // Duplicate entry
+      if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault();
+        duplicateSelectedEntry();
+        return;
+      }
+
+      // Copy content
+      if (e.ctrlKey && e.key === 'c') {
+        e.preventDefault();
+        copySelectedEntryContent();
+        return;
+      }
+
+      // Move entry
+      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveSelectedEntry('up');
+        return;
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveSelectedEntry('down');
+        return;
+      }
+
+      // Indent/outdent
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const maxIndent = 6;
+        setEntries(prev => prev.map(entry => {
+          if (entry.id === selectedEntryId) {
+            const newIndent = e.shiftKey 
+              ? Math.max(0, entry.indent - 1)
+              : Math.min(maxIndent, entry.indent + 1);
+            return { ...entry, indent: newIndent };
+          }
+          return entry;
+        }));
+        return;
+      }
+    }
+
+    // Global tree operations
+    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      expandCollapseAll(true);
+      return;
+    }
+    if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+      e.preventDefault();
+      expandCollapseAll(false);
       return;
     }
 
-    // Tab: Indent (when entry is selected)
-    if (e.key === 'Tab' && selectedEntryId) {
+    // Focus mode (F key)
+    if (e.key === 'f' && !e.ctrlKey) {
       e.preventDefault();
-      const maxIndent = 6; // Reasonable limit
-      
-      setEntries(prev => prev.map(entry => {
-        if (entry.id === selectedEntryId) {
-          const newIndent = e.shiftKey 
-            ? Math.max(0, entry.indent - 1)
-            : Math.min(maxIndent, entry.indent + 1);
-          return { ...entry, indent: newIndent };
-        }
-        return entry;
-      }));
+      // TODO: Implement focus mode
       return;
     }
-  }, [mode, addEntry, entries, selectedEntryId]);
+
+    // Export (Ctrl+S)
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      const exportData = JSON.stringify(entries, null, 2);
+      const blob = new Blob([exportData], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'hybrid-notes-export.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+  }, [
+    mode, entries, selectedEntryId, showKeyboardHelp, searchMode, typeFilter, showDetails,
+    addEntry, navigateToEntry, deleteSelectedEntry, duplicateSelectedEntry, 
+    copySelectedEntryContent, moveSelectedEntry, expandCollapseAll, expandCollapseSelected,
+    loadDemoContent
+  ]);
 
   // Format entry content for display
   const formatEntryContent = (entry: Entry) => {
@@ -521,12 +844,13 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
                   <span className="text-terminal-green">➤</span> Start logging your thoughts...
                 </div>
               ) : (
-                <div className="space-y-1">
-                  {entries.map((entry, index) => {
-                    if (!isEntryVisible(entry, index)) return null;
+                 <div className="space-y-1">
+                   {getFilteredEntries().map((entry, index) => {
+                     const originalIndex = entries.indexOf(entry);
+                     if (!isEntryVisible(entry, originalIndex)) return null;
                     
-                    const typeColors = getTypeColor(entry.type);
-                    const entryHasChildren = hasChildren(entry, index);
+                     const typeColors = getTypeColor(entry.type);
+                     const entryHasChildren = hasChildren(entry, originalIndex);
                     
                     return (
                       <div
@@ -600,10 +924,32 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
               )}
             </div>
 
+            {/* Search Bar */}
+            {searchMode && (
+              <div className="border-t border-terminal-gray/20 p-4 bg-terminal-bg/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-terminal-blue text-sm">🔍</span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search entries... (Escape to close)"
+                    className="flex-1 bg-transparent border border-terminal-gray/30 rounded px-2 py-1 text-terminal-fg placeholder-terminal-gray text-sm"
+                    autoFocus
+                  />
+                  {typeFilter && (
+                    <span className="px-2 py-1 rounded text-xs border border-terminal-blue/30 bg-terminal-blue/20 text-terminal-blue">
+                      {typeFilter}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Input Area */}
             <div className="border-t border-terminal-gray/20 p-4">
               <div className="text-terminal-gray text-xs mb-2">
-                {getInsertionIndicator()} • Alt+↑/↓ to select • type:: content for custom types
+                {getInsertionIndicator()} • ↑/↓ navigate • ? for help • type:: content for custom types
               </div>
               
               <div className="flex items-end gap-2">
@@ -719,6 +1065,93 @@ export const HybridNotes: React.FC<HybridNotesProps> = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* Keyboard Help Overlay */}
+      {showKeyboardHelp && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-terminal-bg border border-terminal-gray rounded-lg p-6 max-w-2xl max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-terminal-green">Keyboard Shortcuts</h3>
+              <button
+                onClick={() => setShowKeyboardHelp(false)}
+                className="text-terminal-gray hover:text-terminal-fg"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm font-mono">
+              <div>
+                <h4 className="text-terminal-blue font-bold mb-2">Navigation</h4>
+                <div className="space-y-1 text-terminal-gray">
+                  <div><kbd className="text-terminal-green">↑/↓</kbd> Navigate entries</div>
+                  <div><kbd className="text-terminal-green">Home/End</kbd> First/Last entry</div>
+                  <div><kbd className="text-terminal-green">PgUp/PgDn</kbd> Page up/down</div>
+                  <div><kbd className="text-terminal-green">Ctrl+↑/↓</kbd> Parent/Child</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-terminal-blue font-bold mb-2">Entry Operations</h4>
+                <div className="space-y-1 text-terminal-gray">
+                  <div><kbd className="text-terminal-green">Space/Enter</kbd> Expand/Collapse</div>
+                  <div><kbd className="text-terminal-green">e</kbd> Edit entry</div>
+                  <div><kbd className="text-terminal-green">Del/Backspace</kbd> Delete</div>
+                  <div><kbd className="text-terminal-green">Ctrl+D</kbd> Duplicate</div>
+                  <div><kbd className="text-terminal-green">Ctrl+C</kbd> Copy content</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-terminal-blue font-bold mb-2">Tree Operations</h4>
+                <div className="space-y-1 text-terminal-gray">
+                  <div><kbd className="text-terminal-green">Tab/Shift+Tab</kbd> Indent/Outdent</div>
+                  <div><kbd className="text-terminal-green">Ctrl+Shift+E</kbd> Expand all</div>
+                  <div><kbd className="text-terminal-green">Ctrl+Shift+C</kbd> Collapse all</div>
+                  <div><kbd className="text-terminal-green">Ctrl+Shift+↑/↓</kbd> Move entry</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-terminal-blue font-bold mb-2">Search & Filter</h4>
+                <div className="space-y-1 text-terminal-gray">
+                  <div><kbd className="text-terminal-green">Ctrl+F</kbd> Search</div>
+                  <div><kbd className="text-terminal-green">Ctrl+1-9</kbd> Filter by type</div>
+                  <div><kbd className="text-terminal-green">Ctrl+0</kbd> Clear filters</div>
+                  <div><kbd className="text-terminal-green">Escape</kbd> Clear selection</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-terminal-blue font-bold mb-2">Global Actions</h4>
+                <div className="space-y-1 text-terminal-gray">
+                  <div><kbd className="text-terminal-green">Ctrl+E</kbd> Toggle mode</div>
+                  <div><kbd className="text-terminal-green">i</kbd> Focus input</div>
+                  <div><kbd className="text-terminal-green">d</kbd> Toggle details</div>
+                  <div><kbd className="text-terminal-green">Ctrl+S</kbd> Export data</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-terminal-blue font-bold mb-2">Special</h4>
+                <div className="space-y-1 text-terminal-gray">
+                  <div><kbd className="text-terminal-green">Ctrl+Shift+D</kbd> Load demo</div>
+                  <div><kbd className="text-terminal-green">?</kbd> Show/hide help</div>
+                  <div><kbd className="text-terminal-green">Enter</kbd> Add entry</div>
+                  <div><kbd className="text-terminal-green">f</kbd> Focus mode (TODO)</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 p-3 bg-terminal-gray/10 rounded border border-terminal-gray/20">
+              <p className="text-xs text-terminal-gray">
+                <span className="text-terminal-green">Tip:</span> Use <kbd className="text-terminal-green">type::</kbd> prefix to categorize entries 
+                (e.g., "synthesis:: key insight" or "debug:: found issue")
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
